@@ -1,81 +1,63 @@
-# MaiBot 与 Napcat 的 Adapter
-运行方式：独立/放在MaiBot本体作为插件
+# MaiBot-Discord-Adapter
 
-# 使用说明
-请参考[官方文档](https://docs.mai-mai.org/manual/adapters/napcat.html)
+哇！这是一个超级可爱的MaiBot Discord适配器喔！(｡･ω･｡)
 
-# 消息流转过程
+## 项目介绍 喵~
 
-```mermaid
-sequenceDiagram
-    participant Napcat as Napcat客户端
-    participant Adapter as MaiBot-Napcat适配器
-    participant Queue as 消息队列
-    participant Handler as 消息处理器
-    participant MaiBot as MaiBot服务
+这个项目是从 [MaiBot-Napcat-Adapter](https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter) fork过来的捏！因为本喵想要让MaiBot能在Discord上玩耍，所以就把它魔改成了一个Discord适配器啦！(≧▽≦)
 
-    Note over Napcat,MaiBot: 初始化阶段
-    Napcat->>Adapter: WebSocket连接(ws://localhost:8095)
-    Adapter->>MaiBot: WebSocket连接(ws://localhost:8000)
-    
-    Note over Napcat,MaiBot: 心跳检测
-    loop 每30秒
-        Napcat->>Adapter: 发送心跳包
-        Adapter->>Napcat: 心跳响应
-    end
+## 主要功能 喵~
 
-    Note over Napcat,MaiBot: 消息处理流程
-    Napcat->>Adapter: 发送消息
-    Adapter->>Queue: 消息入队(message_queue)
-    Queue->>Handler: 消息出队处理
-    Handler->>Handler: 解析消息类型
-    alt 文本消息
-        Handler->>MaiBot: 发送文本消息
-    else 图片消息
-        Handler->>MaiBot: 发送图片消息
-    else 混合消息
-        Handler->>MaiBot: 发送混合消息
-    else 转发消息
-        Handler->>MaiBot: 发送转发消息
-    end
-    MaiBot-->>Adapter: 消息响应
-    Adapter-->>Napcat: 消息响应
+- 🎮 支持Discord群聊和私聊消息的收发喔！
+- 🎨 支持发送文本、图片、表情包等多种消息类型捏~
+- 🔄 支持消息回复功能，让对话更有趣喵！
+- 🛡️ 支持黑白名单功能，可以控制哪些频道和用户可以和机器人玩耍喔！
+- 🎵 支持语音消息（需要配置TTS）捏！
 
-    Note over Napcat,MaiBot: 优雅关闭
-    Adapter->>MaiBot: 关闭连接
-    Adapter->>Queue: 清空消息队列
-    Adapter->>Napcat: 关闭连接
+## 开发状态 喵~
+
+喵呜~这个项目还在开发中喔！(｡•́︿•̀｡)
+- 🐛 可能会有亿些小bug，希望大家能帮忙找出来捏~
+- 💝 欢迎各位大佬来提交issue和pr，让这个项目变得更好喵！
+- 🌟 如果你有任何想法或建议，也欢迎来讨论喔！
+
+## 使用方法 喵~
+
+1. 首先要在Discord开发者平台创建一个机器人喔！[点击这里](https://discord.com/developers/applications)去创建捏~
+2. 复制机器人的Token，填写到`config.toml`文件里喵！
+3. 创建venv并安装依赖包：
+```bash
+python3 -m venv MaiBot/venv      # 创建虚拟环境    
+source MaiBot/venv/bin/activate
+pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade
+```
+4. 运行程序：
+```bash
+python main.py
 ```
 
+## 配置文件说明 喵~
 
-# TO DO List
-- [x] 读取自动心跳测试连接
-- [x] 接受消息解析
-  - [x] 文本解析
-  - [x] 图片解析
-  - [x] 文本与消息混合解析
-  - [x] 转发解析（含图片动态解析）
-  - [ ] 群公告解析
-  - [x] 回复解析
-  - [ ] 群临时消息（可能不做）
-  - [ ] 链接解析
-  - [x] 戳一戳解析
-    - [x] 读取戳一戳的自定义内容
-  - [ ] 语音解析（？）
-  - [ ] 所有的notice类
-    - [ ] <del>撤回</del>
-- [x] 发送消息
-  - [x] 发送文本
-  - [x] 发送图片
-  - [x] 发送表情包
-  - [x] 引用回复（完成但是没测试）
-  - [ ] 戳回去（？）
-  - [x] 发送语音
-- [x] 使用echo与uuid保证消息顺序
-- [x] 执行部分管理员功能
-  - [x] 禁言别人
-  - [x] 全体禁言
-  - [x] 群踢人功能
+在`config.toml`文件中，你可以设置：
+- Discord机器人的Token
+- 黑白名单
+- 心跳间隔
+- 日志等级
+- 其他功能开关
 
-  # 特别鸣谢
-  特别感谢[@Maple127667](https://github.com/Maple127667)对本项目代码思路的支持
+## 注意事项 喵~
+
+- 记得给机器人正确的权限喔！不然它可能会生气不理你捏~
+- 如果遇到问题，可以查看日志文件，看看机器人是不是在闹小脾气喵！
+- 本喵会持续更新，让机器人变得更可爱喔！
+
+## 特别鸣谢 喵~
+
+感谢原项目 [MaiBot-Napcat-Adapter](https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter) 的开发者们！没有你们就没有这么可爱的机器人捏！(｡♥‿♥｡)
+
+## 许可证 喵~
+
+本项目采用 GPL-3.0 许可证喔！要遵守规则才能和机器人一起玩耍捏！
+
+---
+最后，希望这个可爱的机器人能给你带来快乐喵！(≧ω≦)
