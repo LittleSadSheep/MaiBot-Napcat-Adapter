@@ -8,16 +8,19 @@ from maim_message import (
     BaseMessageInfo,
     MessageBase,
 )
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List, Optional
 
 from . import CommandType
 from .config import global_config
 from .message_queue import get_response
 from .logger import logger
 from .utils import get_image_format, convert_image_to_gif
+import discord
 
 
 class SendHandler:
+    bot: discord.Client = None
+
     def __init__(self):
         self.server_connection: Server.ServerConnection = None
 
@@ -44,7 +47,7 @@ class SendHandler:
         id_name: str = None
         processed_message: list = []
         try:
-            processed_message = await self.handle_seg_recursive(message_segment)
+            processed_message = await self.handle_seg_recursive(raw_message_base.message_segments)
         except Exception as e:
             logger.error(f"处理消息时发生错误: {e}")
             return
@@ -66,18 +69,8 @@ class SendHandler:
         else:
             logger.error("无法识别的消息类型")
             return
-        logger.info("尝试发送到napcat")
-        response = await self.send_message_to_napcat(
-            action,
-            {
-                id_name: target_id,
-                "message": processed_message,
-            },
-        )
-        if response.get("status") == "ok":
-            logger.info("消息发送成功")
-        else:
-            logger.warning(f"消息发送失败，napcat返回：{str(response)}")
+        logger.info("尝试发送到Discord")
+        await self.send_message(raw_message_base)
 
     async def send_command(self, raw_message_base: MessageBase) -> None:
         """
@@ -120,16 +113,10 @@ class SendHandler:
         else:
             return 1
 
-    async def handle_seg_recursive(self, seg_data: Seg) -> list:
+    async def handle_seg_recursive(self, segments: List[Seg]) -> list:
         payload: list = []
-        if seg_data.type == "seglist":
-            # level = self.get_level(seg_data)  # 给以后可能的多层嵌套做准备，此处不使用
-            if not seg_data.data:
-                return []
-            for seg in seg_data.data:
-                payload = self.process_message_by_type(seg, payload)
-        else:
-            payload = self.process_message_by_type(seg_data, payload)
+        for segment in segments:
+            payload = self.process_message_by_type(segment, payload)
         return payload
 
     def process_message_by_type(self, seg: Seg, payload: list) -> list:
@@ -156,6 +143,11 @@ class SendHandler:
         elif seg.type == "voice":
             voice = seg.data
             new_payload = self.build_payload(payload, self.handle_voice_message(voice), False)
+        elif seg.type == "poke":
+            # Discord没有戳一戳功能，转换为文本
+            target_id = seg.data.get("target_id")
+            if target_id:
+                new_payload = self.build_payload(payload, self.handle_poke_message(target_id), False)
         return new_payload
 
     def build_payload(self, payload: list, addon: dict, is_reply: bool = False) -> list:
@@ -218,6 +210,10 @@ class SendHandler:
             "type": "record",
             "data": {"file": f"base64://{encoded_voice}"},
         }
+
+    def handle_poke_message(self, target_id: str) -> dict:
+        """处理戳一戳消息"""
+        return {"type": "text", "data": {"text": f"戳了戳用户 {target_id}"}}
 
     def handle_ban_command(self, args: Dict[str, Any], group_info: GroupInfo) -> Tuple[str, Dict[str, Any]]:
         """处理封禁命令
@@ -308,6 +304,66 @@ class SendHandler:
             logger.error(f"发送消息失败: {e}")
             return {"status": "error", "message": str(e)}
         return response
+
+    async def send_message(self, message_base: MessageBase) -> None:
+        """
+        发送消息到Discord
+        Parameters:
+            message_base: MessageBase: 消息基础信息
+        """
+        if not self.bot:
+            logger.error("Discord Bot未初始化")
+            return
+
+        try:
+            channel_id = message_base.group_info.group_id if message_base.group_info else message_base.user_info.user_id
+            channel = self.bot.get_channel(channel_id) if message_base.group_info else await self.bot.fetch_user(channel_id)
+            
+            if not channel:
+                logger.error(f"无法找到目标频道/用户: {channel_id}")
+                return
+
+            content = await self._convert_segments_to_discord(message_base.message_segments)
+            if not content:
+                logger.warning("消息内容为空")
+                return
+
+            await channel.send(content=content)
+            logger.info(f"消息已发送到 {channel_id}")
+
+        except Exception as e:
+            logger.error(f"发送消息失败: {str(e)}")
+
+    async def _convert_segments_to_discord(self, segments: List[Seg]) -> Optional[str]:
+        """
+        将MaiBot消息段转换为Discord消息格式
+        Parameters:
+            segments: List[Seg]: 消息段列表
+        Returns:
+            str: Discord消息内容
+        """
+        if not segments:
+            return None
+
+        content = []
+        for segment in segments:
+            if segment.type == "text":
+                content.append(segment.data.get("text", ""))
+            elif segment.type == "image":
+                # Discord会自动处理图片URL
+                content.append(segment.data.get("file", ""))
+            elif segment.type == "reply":
+                # Discord的回复功能需要特殊处理
+                message_id = segment.data.get("id")
+                if message_id:
+                    content.append(f"回复消息ID: {message_id}")
+            elif segment.type == "poke":
+                # Discord没有戳一戳功能，转换为文本
+                target_id = segment.data.get("target_id")
+                if target_id:
+                    content.append(f"戳了戳用户 {target_id}")
+
+        return "\n".join(filter(None, content))
 
 
 send_handler = SendHandler()

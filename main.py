@@ -1,7 +1,8 @@
 import asyncio
 import sys
 import json
-import websockets as Server
+import discord
+from discord.ext import commands
 from src.logger import logger
 from src.recv_handler import recv_handler
 from src.send_handler import send_handler
@@ -9,19 +10,62 @@ from src.config import global_config
 from src.mmc_com_layer import mmc_start_com, mmc_stop_com, router
 from src.message_queue import message_queue, put_response, check_timeout_response
 
+# 创建Discord Bot客户端
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+bot = commands.Bot(command_prefix='!', intents=intents)
 
-async def message_recv(server_connection: Server.ServerConnection):
-    recv_handler.server_connection = server_connection
-    send_handler.server_connection = server_connection
-    async for raw_message in server_connection:
-        logger.debug(f"{raw_message[:100]}..." if len(raw_message) > 100 else raw_message)
-        decoded_raw_message: dict = json.loads(raw_message)
-        post_type = decoded_raw_message.get("post_type")
-        if post_type in ["meta_event", "message", "notice"]:
-            await message_queue.put(decoded_raw_message)
-        elif post_type is None:
-            await put_response(decoded_raw_message)
+@bot.event
+async def on_ready():
+    logger.info(f'Bot已登录为 {bot.user.name}')
+    recv_handler.bot = bot
+    send_handler.bot = bot
 
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    # 将Discord消息转换为MaiBot消息格式
+    discord_message = {
+        "post_type": "message",
+        "message_type": "private" if isinstance(message.channel, discord.DMChannel) else "group",
+        "message_id": message.id,
+        "time": message.created_at.timestamp(),
+        "self_id": bot.user.id,
+        "sender": {
+            "user_id": message.author.id,
+            "nickname": message.author.name,
+            "card": message.author.display_name
+        }
+    }
+
+    if isinstance(message.channel, discord.TextChannel):
+        discord_message["group_id"] = message.channel.id
+        discord_message["group_name"] = message.channel.name
+
+    # 处理消息内容
+    content = []
+    for attachment in message.attachments:
+        if attachment.content_type and attachment.content_type.startswith('image/'):
+            content.append({
+                "type": "image",
+                "data": {
+                    "file": attachment.url
+                }
+            })
+    
+    if message.content:
+        content.append({
+            "type": "text",
+            "data": {
+                "text": message.content
+            }
+        })
+
+    discord_message["message"] = content
+    await message_queue.put(discord_message)
 
 async def message_process():
     while True:
@@ -38,30 +82,26 @@ async def message_process():
         message_queue.task_done()
         await asyncio.sleep(0.05)
 
-
 async def main():
     recv_handler.maibot_router = router
-    _ = await asyncio.gather(napcat_server(), mmc_start_com(), message_process(), check_timeout_response())
-
-
-async def napcat_server():
-    logger.info("正在启动adapter...")
-    async with Server.serve(message_recv, global_config.server_host, global_config.server_port) as server:
-        logger.info(f"Adapter已启动，监听地址: ws://{global_config.server_host}:{global_config.server_port}")
-        await server.serve_forever()
-
+    _ = await asyncio.gather(
+        bot.start(global_config.discord_token),
+        mmc_start_com(),
+        message_process(),
+        check_timeout_response()
+    )
 
 async def graceful_shutdown():
     try:
         logger.info("正在关闭adapter...")
         await mmc_stop_com()
+        await bot.close()
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
     except Exception as e:
         logger.error(f"Adapter关闭中出现错误: {e}")
-
 
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()

@@ -1,45 +1,42 @@
 import asyncio
 import time
-from typing import Dict
+from typing import Dict, Any
 from .config import global_config
 from .logger import logger
 
-response_dict: Dict = {}
+response_dict: Dict[str, Dict[str, Any]] = {}
 response_time_dict: Dict = {}
 message_queue = asyncio.Queue()
 
 
-async def get_response(request_id: str) -> dict:
-    retry_count = 0
-    max_retries = 50  # 10秒超时
-    while request_id not in response_dict:
-        retry_count += 1
-        if retry_count >= max_retries:
-            raise TimeoutError(f"请求超时，未收到响应，request_id: {request_id}")
-        await asyncio.sleep(0.2)
-    response = response_dict.pop(request_id)
-    _ = response_time_dict.pop(request_id)
-    logger.trace(f"响应信息id: {request_id} 已从响应字典中取出")
-    return response
+async def get_response(message_id: str, timeout: float = 30) -> Dict[str, Any]:
+    """获取响应，如果超时则返回None"""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if message_id in response_dict:
+            return response_dict.pop(message_id)["response"]
+        await asyncio.sleep(0.1)
+    return None
 
 
-async def put_response(response: dict):
-    echo_id = response.get("echo")
-    now_time = time.time()
-    response_dict[echo_id] = response
-    response_time_dict[echo_id] = now_time
-    logger.trace(f"响应信息id: {echo_id} 已存入响应字典")
+async def put_response(message_id: str, response: Dict[str, Any]):
+    """将响应放入字典中"""
+    response_dict[message_id] = {
+        "response": response,
+        "time": time.time()
+    }
 
 
-async def check_timeout_response() -> None:
+async def check_timeout_response():
+    """检查并删除超时的响应"""
     while True:
-        cleaned_message_count: int = 0
-        now_time = time.time()
-        for echo_id, response_time in list(response_time_dict.items()):
-            if now_time - response_time > global_config.napcat_heartbeat_interval:
-                cleaned_message_count += 1
-                response_dict.pop(echo_id)
-                response_time_dict.pop(echo_id)
-                logger.warning(f"响应消息 {echo_id} 超时，已删除")
-        logger.info(f"已删除 {cleaned_message_count} 条超时响应消息")
-        await asyncio.sleep(global_config.napcat_heartbeat_interval)
+        current_time = time.time()
+        timeout_keys = [
+            key for key, value in response_dict.items()
+            if current_time - value["time"] > 30
+        ]
+        for key in timeout_keys:
+            response_dict.pop(key)
+        if timeout_keys:
+            logger.info(f"已删除 {len(timeout_keys)} 条超时响应消息")
+        await asyncio.sleep(30)  # 使用固定的30秒间隔
