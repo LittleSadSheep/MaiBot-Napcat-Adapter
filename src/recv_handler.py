@@ -243,7 +243,7 @@ class RecvHandler:
         Returns:
             Seg: 文本消息段
         """
-        return Seg(type="text", data={"text": raw_message.get("message", "")})
+        return Seg(type="text", data=raw_message.get("message", ""))
 
     async def handle_face_message(self, raw_message: dict) -> Seg | None:
         """

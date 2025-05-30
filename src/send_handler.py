@@ -20,6 +20,7 @@ from .utils import get_image_format, convert_image_to_gif
 class SendHandler:
     def __init__(self):
         self.server_connection: Server.ServerConnection = None
+        self.discord_bot = None  # Assuming a Discord bot is set up
 
     async def handle_message(self, raw_message_base_dict: dict) -> None:
         raw_message_base: MessageBase = MessageBase.from_dict(raw_message_base_dict)
@@ -40,9 +41,7 @@ class SendHandler:
         group_info: GroupInfo = message_info.group_info
         user_info: UserInfo = message_info.user_info
         target_id: int = None
-        action: str = None
-        id_name: str = None
-        processed_message: list = []
+        processed_message: str = ""
         try:
             processed_message = await self.handle_seg_recursive(message_segment)
         except Exception as e:
@@ -53,31 +52,29 @@ class SendHandler:
             logger.critical("现在暂时不支持解析此回复！")
             return None
 
-        if group_info and user_info:
-            logger.debug("发送群聊消息")
-            target_id = group_info.group_id
-            action = "send_group_msg"
-            id_name = "group_id"
-        elif user_info:
-            logger.debug("发送私聊消息")
-            target_id = user_info.user_id
-            action = "send_private_msg"
-            id_name = "user_id"
-        else:
-            logger.error("无法识别的消息类型")
+        try:
+            if group_info:
+                logger.debug("发送群聊消息")
+                channel = self.discord_bot.get_channel(int(group_info.group_id))
+                if channel:
+                    await channel.send(processed_message)
+                    logger.info("消息发送成功")
+                else:
+                    logger.error(f"找不到频道 {group_info.group_id}")
+            elif user_info:
+                logger.debug("发送私聊消息")
+                user = await self.discord_bot.fetch_user(int(user_info.user_id))
+                if user:
+                    await user.send(processed_message)
+                    logger.info("消息发送成功")
+                else:
+                    logger.error(f"找不到用户 {user_info.user_id}")
+            else:
+                logger.error("无法识别的消息类型")
+                return
+        except Exception as e:
+            logger.error(f"发送消息时发生错误: {e}")
             return
-        logger.info("尝试发送到napcat")
-        response = await self.send_message_to_napcat(
-            action,
-            {
-                id_name: target_id,
-                "message": processed_message,
-            },
-        )
-        if response.get("status") == "ok":
-            logger.info("消息发送成功")
-        else:
-            logger.warning(f"消息发送失败，napcat返回：{str(response)}")
 
     async def send_command(self, raw_message_base: MessageBase) -> None:
         """
@@ -120,43 +117,34 @@ class SendHandler:
         else:
             return 1
 
-    async def handle_seg_recursive(self, seg_data: Seg) -> list:
-        payload: list = []
+    async def handle_seg_recursive(self, seg_data: Seg) -> str:
         if seg_data.type == "seglist":
-            # level = self.get_level(seg_data)  # 给以后可能的多层嵌套做准备，此处不使用
             if not seg_data.data:
-                return []
+                return ""
+            messages = []
             for seg in seg_data.data:
-                payload = self.process_message_by_type(seg, payload)
+                message = await self.process_message_by_type(seg)
+                if message:
+                    messages.append(message)
+            return " ".join(messages)
         else:
-            payload = self.process_message_by_type(seg_data, payload)
-        return payload
+            return await self.process_message_by_type(seg_data)
 
-    def process_message_by_type(self, seg: Seg, payload: list) -> list:
-        # sourcery skip: reintroduce-else, swap-if-else-branches, use-named-expression
-        new_payload = payload
-        if seg.type == "reply":
-            target_id = seg.data
-            if target_id == "notice":
-                return payload
-            new_payload = self.build_payload(payload, self.handle_reply_message(target_id), True)
-        elif seg.type == "text":
-            text = seg.data
-            if not text:
-                return payload
-            new_payload = self.build_payload(payload, self.handle_text_message(text), False)
-        elif seg.type == "face":
-            logger.warning("MaiBot 发送了qq原生表情，暂时不支持")
+    async def process_message_by_type(self, seg: Seg) -> str:
+        if seg.type == "text":
+            return seg.data
         elif seg.type == "image":
-            image = seg.data
-            new_payload = self.build_payload(payload, self.handle_image_message(image), False)
+            # 对于图片，我们返回图片的URL
+            if isinstance(seg.data, dict):
+                return seg.data.get("url", "")
+            return ""
         elif seg.type == "emoji":
-            emoji = seg.data
-            new_payload = self.build_payload(payload, self.handle_emoji_message(emoji), False)
-        elif seg.type == "voice":
-            voice = seg.data
-            new_payload = self.build_payload(payload, self.handle_voice_message(voice), False)
-        return new_payload
+            # 对于表情，我们返回表情的文本表示
+            return seg.data
+        elif seg.type == "reply":
+            # 对于回复，我们返回引用的消息ID
+            return f"回复消息ID: {seg.data}"
+        return ""
 
     def build_payload(self, payload: list, addon: dict, is_reply: bool = False) -> list:
         # sourcery skip: for-append-to-extend, merge-list-append, simplify-generator
