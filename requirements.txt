@@ -1,4 +1,4 @@
-websockets>=12.0
+websockets
 aiohttp
 asyncio
 requests
@@ -6,4 +6,4 @@ maim_message
 loguru
 pillow
 tomli
-discord.py>=2.3.2
+discord.py
