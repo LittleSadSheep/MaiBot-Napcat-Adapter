@@ -9,6 +9,7 @@ from maim_message import (
     MessageBase,
 )
 from typing import Dict, Any, Tuple
+import discord
 
 from . import CommandType
 from .config import global_config
@@ -43,46 +44,83 @@ class SendHandler:
             return None
 
         # 获取消息内容
-        payload = []
-        is_reply = False
-        reply_message_id = None
+        content = ""
+        embeds = []
+        message_reference = None
+        attachments = []
 
         # 处理消息段
         if message.message_segment.type == "seglist":
             for seg in message.message_segment.data:
                 if seg.type == "reply":
-                    is_reply = True
-                    reply_message_id = seg.data
+                    message_reference = {
+                        "message_id": seg.data,
+                        "channel_id": message.message_info.group_info.group_id if message.message_info.group_info else None,
+                        "guild_id": message.message_info.group_info.group_id if message.message_info.group_info else None
+                    }
                 elif seg.type == "text":
-                    payload.append({"type": "text", "content": seg.data})
+                    content += seg.data
                 elif seg.type == "image":
-                    payload.append({"type": "image", "content": seg.data})
+                    # 处理图片，添加到attachments
+                    attachments.append({
+                        "id": str(uuid.uuid4()),
+                        "filename": f"image_{uuid.uuid4()}.png",
+                        "content_type": "image/png",
+                        "size": len(seg.data),
+                        "url": seg.data,
+                        "proxy_url": seg.data,
+                        "height": None,
+                        "width": None
+                    })
                 elif seg.type == "emoji":
-                    payload.append({"type": "emoji", "content": seg.data})
+                    # 处理表情，添加到embeds
+                    embeds.append({
+                        "type": "image",
+                        "url": seg.data,
+                        "image": {
+                            "url": seg.data,
+                            "proxy_url": seg.data
+                        }
+                    })
         else:
             if message.message_segment.type == "reply":
-                is_reply = True
-                reply_message_id = message.message_segment.data
+                message_reference = {
+                    "message_id": message.message_segment.data,
+                    "channel_id": message.message_info.group_info.group_id if message.message_info.group_info else None,
+                    "guild_id": message.message_info.group_info.group_id if message.message_info.group_info else None
+                }
             elif message.message_segment.type == "text":
-                payload.append({"type": "text", "content": message.message_segment.data})
+                content = message.message_segment.data
             elif message.message_segment.type == "image":
-                payload.append({"type": "image", "content": message.message_segment.data})
+                attachments.append({
+                    "id": str(uuid.uuid4()),
+                    "filename": f"image_{uuid.uuid4()}.png",
+                    "content_type": "image/png",
+                    "size": len(message.message_segment.data),
+                    "url": message.message_segment.data,
+                    "proxy_url": message.message_segment.data,
+                    "height": None,
+                    "width": None
+                })
             elif message.message_segment.type == "emoji":
-                payload.append({"type": "emoji", "content": message.message_segment.data})
+                embeds.append({
+                    "type": "image",
+                    "url": message.message_segment.data,
+                    "image": {
+                        "url": message.message_segment.data,
+                        "proxy_url": message.message_segment.data
+                    }
+                })
 
-        # 构建消息体
-        if is_reply and reply_message_id:
-            addon = {
-                "type": "reply",
-                "content": reply_message_id
-            }
-            payload = self.build_payload(payload, addon, True)
-        else:
-            addon = {
-                "type": "text",
-                "content": ""
-            }
-            payload = self.build_payload(payload, addon, False)
+        # 构建Discord消息体
+        payload = {
+            "content": content,
+            "embeds": embeds,
+            "attachments": attachments,
+            "message_reference": message_reference if message_reference else None,
+            "tts": False,
+            "flags": 0
+        }
 
         logger.debug(f"发送给Discord的原始消息: {json.dumps(payload, ensure_ascii=False, indent=2)}")
 
@@ -320,6 +358,110 @@ class SendHandler:
             logger.error(f"发送消息失败: {e}")
             return {"status": "error", "message": str(e)}
         return response
+
+    async def send_group_message(self, channel_id: str, payload: dict) -> None:
+        """
+        发送群消息
+
+        Parameters:
+            channel_id: str: 频道ID
+            payload: dict: 消息内容
+        """
+        try:
+            channel = self.discord_bot.get_channel(int(channel_id))
+            if not channel:
+                logger.error(f"找不到频道: {channel_id}")
+                return
+
+            # 处理回复消息
+            reference = None
+            if payload.get("message_reference"):
+                try:
+                    ref_msg = await channel.fetch_message(int(payload["message_reference"]["message_id"]))
+                    reference = ref_msg
+                except Exception as e:
+                    logger.error(f"获取引用消息失败: {e}")
+
+            # 处理附件
+            files = []
+            if payload.get("attachments"):
+                for attachment in payload["attachments"]:
+                    try:
+                        # 这里需要实现从URL下载图片的逻辑
+                        # 暂时跳过
+                        pass
+                    except Exception as e:
+                        logger.error(f"处理附件失败: {e}")
+
+            # 处理嵌入内容
+            embeds = []
+            if payload.get("embeds"):
+                for embed_data in payload["embeds"]:
+                    try:
+                        embed = discord.Embed()
+                        if embed_data.get("type") == "image":
+                            embed.set_image(url=embed_data["url"])
+                        embeds.append(embed)
+                    except Exception as e:
+                        logger.error(f"处理嵌入内容失败: {e}")
+
+            # 发送消息
+            await channel.send(
+                content=payload.get("content", ""),
+                reference=reference,
+                embeds=embeds,
+                files=files
+            )
+            logger.info(f"成功发送消息到频道 {channel_id}")
+        except Exception as e:
+            logger.error(f"发送群消息失败: {e}")
+
+    async def send_private_message(self, user_id: str, payload: dict) -> None:
+        """
+        发送私聊消息
+
+        Parameters:
+            user_id: str: 用户ID
+            payload: dict: 消息内容
+        """
+        try:
+            user = await self.discord_bot.fetch_user(int(user_id))
+            if not user:
+                logger.error(f"找不到用户: {user_id}")
+                return
+
+            # 处理附件
+            files = []
+            if payload.get("attachments"):
+                for attachment in payload["attachments"]:
+                    try:
+                        # 这里需要实现从URL下载图片的逻辑
+                        # 暂时跳过
+                        pass
+                    except Exception as e:
+                        logger.error(f"处理附件失败: {e}")
+
+            # 处理嵌入内容
+            embeds = []
+            if payload.get("embeds"):
+                for embed_data in payload["embeds"]:
+                    try:
+                        embed = discord.Embed()
+                        if embed_data.get("type") == "image":
+                            embed.set_image(url=embed_data["url"])
+                        embeds.append(embed)
+                    except Exception as e:
+                        logger.error(f"处理嵌入内容失败: {e}")
+
+            # 发送消息
+            await user.send(
+                content=payload.get("content", ""),
+                embeds=embeds,
+                files=files
+            )
+            logger.info(f"成功发送私聊消息给用户 {user_id}")
+        except Exception as e:
+            logger.error(f"发送私聊消息失败: {e}")
 
 
 send_handler = SendHandler()
