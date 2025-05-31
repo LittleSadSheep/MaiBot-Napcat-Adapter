@@ -11,10 +11,10 @@ host = "localhost"   # 麦麦在.env文件中设置的主机地址，即HOST字�
 port = 8000          # 麦麦在.env文件中设置的端口，即PORT字段
 
 [Chat] # 黑白名单功能
-group_list_type = "whitelist" # 群组名单类型，可选为：whitelist, blacklist
-group_list = [] # 群组名单
-# 当group_list_type为whitelist时，只有群组名单中的群组可以聊天
-# 当group_list_type为blacklist时，群组名单中的任何群组无法聊天
+channel_list_type = "whitelist" # 群组名单类型，可选为：whitelist, blacklist
+channel_list = [] # 群组名单
+# 当channel_list_type为whitelist时，只有频道名单中的频道可以聊天
+# 当channel_list_type为blacklist时，频道名单中的任何频道无法聊天
 private_list_type = "whitelist" # 私聊名单类型，可选为：whitelist, blacklist
 private_list = [] # 私聊名单
 # 当private_list_type为whitelist时，只有私聊名单中的用户可以聊天
