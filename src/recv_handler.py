@@ -231,9 +231,10 @@ class RecvHandler:
 
         # 处理回复消息
         if not in_reply:
-            reply_seg = await self.handle_reply_message(raw_message)
-            if reply_seg:
-                segments.append(reply_seg)
+            reply_segs = await self.handle_reply_message(raw_message)
+            if reply_segs:
+                # 将回复消息段列表包装在一个Seg对象中
+                segments.append(Seg(type="seglist", data=reply_segs))
 
         return segments
 
@@ -303,29 +304,48 @@ class RecvHandler:
         # Discord的@消息在文本中，不需要单独处理
         return None
 
-    async def handle_reply_message(self, raw_message: dict) -> Seg | None:
-        # sourcery skip: move-assign-in-block, use-named-expression
+    async def handle_reply_message(self, raw_message: dict) -> List[Seg] | None:
         """
         处理回复消息
-
-        Parameters:
-            raw_message: dict: 原始消息
-
-        Returns:
-            Seg | None: 回复消息段
         """
-        if not raw_message.get("referenced_message"):
+        # 获取引用消息信息
+        reference_info = raw_message.get("reference")
+        if not reference_info:
             return None
-
-        referenced_message = raw_message.get("referenced_message")
-        return Seg(
-            type="reply",
-            data={
-                "message_id": referenced_message.get("id"),
-                "user_id": referenced_message.get("author", {}).get("id"),
-                "message": referenced_message.get("content", ""),
-            },
-        )
+            
+        message_id = reference_info.get("message_id")
+        user_id = reference_info.get("user_id")
+        content = reference_info.get("content")
+        
+        if not message_id or not user_id:
+            logger.warning("获取被引用的消息信息失败")
+            return None
+            
+        # 获取发送者信息
+        sender_nickname = None
+        if isinstance(raw_message.get("sender"), dict):
+            sender_nickname = raw_message["sender"].get("nickname")
+            
+        # 构造回复消息段
+        seg_message = []
+        
+        # 添加回复前缀
+        if not sender_nickname:
+            logger.warning("无法获取被引用的人的昵称，返回默认值")
+            seg_message.append(Seg(type="text", data="[回复 未知用户："))
+        else:
+            seg_message.append(Seg(type="text", data=f"[回复<{sender_nickname}:{user_id}>："))
+            
+        # 添加被引用消息内容
+        if content:
+            seg_message.append(Seg(type="text", data=content))
+        else:
+            seg_message.append(Seg(type="text", data="(获取发言内容失败)"))
+            
+        # 添加回复后缀
+        seg_message.append(Seg(type="text", data="]，说："))
+        
+        return seg_message
 
     async def handle_notice(self, raw_message: dict) -> None:
         """

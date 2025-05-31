@@ -43,6 +43,97 @@ async def on_message(message):
     if str(message.author.id) in global_config.ban_user_id:
         return
     
+    # 获取消息引用信息
+    reference_info = None
+    if message.reference:
+        try:
+            referenced_message = await message.channel.fetch_message(message.reference.message_id)
+            reference_info = {
+                "message_id": str(referenced_message.id),
+                "user_id": str(referenced_message.author.id),
+                "content": referenced_message.content,
+                "timestamp": referenced_message.created_at.isoformat()
+            }
+        except Exception as e:
+            logger.error(f"获取引用消息失败: {e}")
+    
+    # 获取消息附件信息
+    attachments = []
+    for attachment in message.attachments:
+        attachments.append({
+            "id": str(attachment.id),
+            "filename": attachment.filename,
+            "url": attachment.url,
+            "content_type": attachment.content_type,
+            "size": attachment.size
+        })
+    
+    # 获取消息嵌入信息
+    embeds = []
+    for embed in message.embeds:
+        embed_data = {
+            "title": embed.title,
+            "description": embed.description,
+            "url": embed.url,
+            "color": embed.color.value if embed.color else None,
+            "timestamp": embed.timestamp.isoformat() if embed.timestamp else None,
+            "footer": {
+                "text": embed.footer.text if embed.footer else None,
+                "icon_url": embed.footer.icon_url if embed.footer else None
+            } if embed.footer else None,
+            "image": {
+                "url": embed.image.url if embed.image else None
+            } if embed.image else None,
+            "thumbnail": {
+                "url": embed.thumbnail.url if embed.thumbnail else None
+            } if embed.thumbnail else None,
+            "author": {
+                "name": embed.author.name if embed.author else None,
+                "url": embed.author.url if embed.author else None,
+                "icon_url": embed.author.icon_url if embed.author else None
+            } if embed.author else None,
+            "fields": [
+                {
+                    "name": field.name,
+                    "value": field.value,
+                    "inline": field.inline
+                } for field in embed.fields
+            ] if embed.fields else []
+        }
+        embeds.append(embed_data)
+    
+    # 获取消息组件信息
+    components = []
+    if message.components:
+        for component in message.components:
+            if isinstance(component, discord.ui.ActionRow):
+                for child in component.children:
+                    if isinstance(child, discord.ui.Button):
+                        components.append({
+                            "type": "button",
+                            "label": child.label,
+                            "style": str(child.style),
+                            "custom_id": child.custom_id,
+                            "url": child.url,
+                            "disabled": child.disabled
+                        })
+                    elif isinstance(child, discord.ui.Select):
+                        components.append({
+                            "type": "select",
+                            "custom_id": child.custom_id,
+                            "placeholder": child.placeholder,
+                            "min_values": child.min_values,
+                            "max_values": child.max_values,
+                            "options": [
+                                {
+                                    "label": option.label,
+                                    "value": option.value,
+                                    "description": option.description,
+                                    "default": option.default
+                                } for option in child.options
+                            ]
+                        })
+    
     # 将Discord消息转换为MaiBot格式
     discord_message = {
         "post_type": "message",
@@ -52,10 +143,42 @@ async def on_message(message):
         "group_id": str(message.channel.id) if isinstance(message.channel, discord.TextChannel) else None,
         "message": message.content,
         "raw_message": message.content,
+        "timestamp": message.created_at.isoformat(),
+        "edited_timestamp": message.edited_at.isoformat() if message.edited_at else None,
+        "tts": message.tts,
+        "mention_everyone": message.mention_everyone,
+        "mentions": [str(user.id) for user in message.mentions],
+        "mention_roles": [str(role.id) for role in message.role_mentions],
+        "mention_channels": [str(channel.id) for channel in message.channel_mentions],
+        "attachments": attachments,
+        "embeds": embeds,
+        "components": components,
+        "reference": reference_info,
+        "pinned": message.pinned,
+        "flags": message.flags.value if message.flags else 0,
         "sender": {
             "user_id": str(message.author.id),
             "nickname": message.author.display_name,
-            "card": message.author.name
+            "card": message.author.name,
+            "bot": message.author.bot,
+            "system": message.author.system,
+            "avatar_url": str(message.author.avatar.url) if message.author.avatar else None,
+            "discriminator": message.author.discriminator,
+            "color": message.author.color.value if message.author.color else None,
+            "roles": [str(role.id) for role in message.author.roles] if hasattr(message.author, 'roles') else []
+        },
+        "channel": {
+            "id": str(message.channel.id),
+            "name": message.channel.name if hasattr(message.channel, 'name') else None,
+            "type": str(message.channel.type),
+            "category_id": str(message.channel.category_id) if hasattr(message.channel, 'category_id') else None,
+            "position": message.channel.position if hasattr(message.channel, 'position') else None,
+            "nsfw": message.channel.nsfw if hasattr(message.channel, 'nsfw') else None,
+            "topic": message.channel.topic if hasattr(message.channel, 'topic') else None,
+            "slowmode_delay": message.channel.slowmode_delay if hasattr(message.channel, 'slowmode_delay') else None
+        } if isinstance(message.channel, discord.TextChannel) else {
+            "id": str(message.channel.id),
+            "type": str(message.channel.type)
         }
     }
     
