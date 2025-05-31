@@ -26,55 +26,79 @@ class SendHandler:
         raw_message_base: MessageBase = MessageBase.from_dict(raw_message_base_dict)
         message_segment: Seg = raw_message_base.message_segment
         logger.info("接收到来自MaiBot的消息，处理中")
+        logger.debug(f"来自MaiBot的原始消息: {json.dumps(raw_message_base_dict, ensure_ascii=False, indent=2)}")
         if message_segment.type == "command":
             return await self.send_command(raw_message_base)
         else:
             return await self.send_normal_message(raw_message_base)
 
-    async def send_normal_message(self, raw_message_base: MessageBase) -> None:
+    async def send_normal_message(self, message: MessageBase) -> None:
         """
-        处理普通消息发送
-        """
-        logger.info("处理普通信息中")
-        message_info: BaseMessageInfo = raw_message_base.message_info
-        message_segment: Seg = raw_message_base.message_segment
-        group_info: GroupInfo = message_info.group_info
-        user_info: UserInfo = message_info.user_info
-        target_id: int = None
-        processed_message: str = ""
-        try:
-            processed_message = await self.handle_seg_recursive(message_segment)
-        except Exception as e:
-            logger.error(f"处理消息时发生错误: {e}")
-            return
+        发送普通消息
 
-        if not processed_message:
-            logger.critical("现在暂时不支持解析此回复！")
+        Parameters:
+            message: MessageBase: 消息基类
+        """
+        if not message.message_segment:
             return None
 
-        try:
-            if group_info:
-                logger.debug("发送群聊消息")
-                channel = self.discord_bot.get_channel(int(group_info.group_id))
-                if channel:
-                    await channel.send(processed_message)
-                    logger.info("消息发送成功")
-                else:
-                    logger.error(f"找不到频道 {group_info.group_id}")
-            elif user_info:
-                logger.debug("发送私聊消息")
-                user = await self.discord_bot.fetch_user(int(user_info.user_id))
-                if user:
-                    await user.send(processed_message)
-                    logger.info("消息发送成功")
-                else:
-                    logger.error(f"找不到用户 {user_info.user_id}")
-            else:
-                logger.error("无法识别的消息类型")
-                return
-        except Exception as e:
-            logger.error(f"发送消息时发生错误: {e}")
-            return
+        # 获取消息内容
+        payload = []
+        is_reply = False
+        reply_message_id = None
+
+        # 处理消息段
+        if message.message_segment.type == "seglist":
+            for seg in message.message_segment.data:
+                if seg.type == "reply":
+                    is_reply = True
+                    reply_message_id = seg.data
+                elif seg.type == "text":
+                    payload.append({"type": "text", "content": seg.data})
+                elif seg.type == "image":
+                    payload.append({"type": "image", "content": seg.data})
+                elif seg.type == "emoji":
+                    payload.append({"type": "emoji", "content": seg.data})
+        else:
+            if message.message_segment.type == "reply":
+                is_reply = True
+                reply_message_id = message.message_segment.data
+            elif message.message_segment.type == "text":
+                payload.append({"type": "text", "content": message.message_segment.data})
+            elif message.message_segment.type == "image":
+                payload.append({"type": "image", "content": message.message_segment.data})
+            elif message.message_segment.type == "emoji":
+                payload.append({"type": "emoji", "content": message.message_segment.data})
+
+        # 构建消息体
+        if is_reply and reply_message_id:
+            addon = {
+                "type": "reply",
+                "content": reply_message_id
+            }
+            payload = self.build_payload(payload, addon, True)
+        else:
+            addon = {
+                "type": "text",
+                "content": ""
+            }
+            payload = self.build_payload(payload, addon, False)
+
+        logger.debug(f"发送给Discord的原始消息: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+
+        # 发送消息
+        if message.message_info.group_info:
+            # 群消息
+            await self.send_group_message(
+                message.message_info.group_info.group_id,
+                payload
+            )
+        else:
+            # 私聊消息
+            await self.send_private_message(
+                message.message_info.user_info.user_id,
+                payload
+            )
 
     async def send_command(self, raw_message_base: MessageBase) -> None:
         """
