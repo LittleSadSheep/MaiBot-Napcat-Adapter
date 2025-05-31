@@ -104,6 +104,8 @@ class RecvHandler:
         Parameters:
             raw_message: dict: 原始消息
         """
+        logger.debug(f"收到Discord原始消息: {json.dumps(raw_message, ensure_ascii=False, indent=2)}")
+        
         message_type: str = raw_message.get("message_type")
         message_id: str = raw_message.get("message_id")
         message_time: float = time.time()
@@ -179,6 +181,8 @@ class RecvHandler:
                 data=message_segments
             ),
         )
+
+        logger.debug(f"发送给Maibot的消息: {json.dumps(message_base.to_dict(), ensure_ascii=False, indent=2)}")
 
         # 发送消息
         await self.message_process(message_base)
@@ -402,9 +406,10 @@ class RecvHandler:
             return None
 
         try:
+            logger.debug(f"从Maibot收到的原始数据: {json.dumps(message_base.to_dict(), ensure_ascii=False, indent=2)}")
             response = await self.maibot_router.send_message(message_base)
             if response:
-                logger.debug(f"收到MaiBot响应: {response}")
+                logger.debug(f"Maibot响应: {json.dumps(response.to_dict() if hasattr(response, 'to_dict') else response, ensure_ascii=False, indent=2)}")
         except Exception as e:
             logger.error(f"发送消息到MaiBot时出错: {e}")
             return None
