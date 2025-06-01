@@ -4,7 +4,7 @@ nickname = ""
 [Discord_Server] # Discord Bot配置
 token = "" # Discord Bot Token
 discord_heartbeat = 30     # 心跳间隔（按秒计）
-proxy = ""                # Discord代理设置，格式如：http://127.0.0.1:10801 或 socks5://127.0.0.1:10801，留空则不使用代理
+proxy = ""                # Discord代理设置，格式如：http://127.0.0.1:7890 或 socks5://127.0.0.1:7890，留空则不使用代理
 
 
 [MaiBot_Server] # 连接麦麦的ws服务设置
