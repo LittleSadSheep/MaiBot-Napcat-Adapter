@@ -14,13 +14,27 @@ from src.message_queue import message_queue, put_response, check_timeout_respons
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+
+# 配置代理
+proxy = global_config.discord_proxy
+if proxy:
+    logger.info(f"使用代理: {proxy}")
+    bot = commands.Bot(
+        command_prefix='!',
+        intents=intents,
+        proxy=proxy
+    )
+else:
+    bot = commands.Bot(command_prefix='!', intents=intents)
+
+bot_ready = asyncio.Event()  # 添加一个事件来跟踪bot的登录状态
 
 @bot.event
 async def on_ready():
     logger.info(f'Discord Bot已登录为 {bot.user.name}')
     recv_handler.discord_bot = bot
     send_handler.discord_bot = bot
+    bot_ready.set()  # 设置事件，表示bot已准备就绪
 
 @bot.event
 async def on_message(message):
@@ -185,6 +199,7 @@ async def on_message(message):
     await message_queue.put(discord_message)
 
 async def message_process():
+    await bot_ready.wait()  # 等待bot准备就绪
     while True:
         message = await message_queue.get()
         post_type = message.get("post_type")

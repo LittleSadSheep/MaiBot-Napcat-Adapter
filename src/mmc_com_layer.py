@@ -6,8 +6,8 @@ from .send_handler import send_handler
 route_config = RouteConfig(
     route_config={
         global_config.platform: TargetConfig(
-            url=f"ws://{global_config.mai_host}:{global_config.mai_port}/ws",
-            token=None,
+            url=f"ws://{global_config.maibot_host}:{global_config.maibot_port}/ws",
+            token=""
         )
     }
 )

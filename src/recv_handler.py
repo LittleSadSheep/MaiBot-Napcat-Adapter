@@ -67,7 +67,6 @@ class RecvHandler:
             await asyncio.sleep(self.interval)
 
     def check_allow_to_chat(self, user_id: str, channel_id: Optional[str]) -> bool:
-        # sourcery skip: hoist-statement-from-if, merge-else-if-into-elif
         """
         检查是否允许聊天
         Parameters:
@@ -97,84 +96,66 @@ class RecvHandler:
         return True
 
     async def handle_raw_message(self, raw_message: dict) -> None:
-        # sourcery skip: low-code-quality, remove-unreachable-code
-        """
-        从Discord接受的原始消息处理
-
-        Parameters:
-            raw_message: dict: 原始消息
-        """
-        logger.debug(f"收到Discord原始消息: {json.dumps(raw_message, ensure_ascii=False, indent=2)}")
+        """处理原始消息"""
+        logger.info(f"开始处理Discord消息: {raw_message.get('message_id')}")
+        logger.debug(f"收到Discord原始消息: {json.dumps(raw_message, ensure_ascii=False)}")
         
-        message_type: str = raw_message.get("message_type")
-        message_id: str = raw_message.get("message_id")
-        message_time: float = time.time()
-
-        template_info: TemplateInfo = None
-        format_info: FormatInfo = FormatInfo(
-            content_format=["text", "image", "emoji"],
-            accept_format=["text", "image", "emoji", "reply", "voice", "command"],
-        )
-
-        if message_type == MessageType.private:
-            sender_info: dict = raw_message.get("sender")
-
-            if not self.check_allow_to_chat(sender_info.get("user_id"), None):
-                return None
-
-            # 发送者用户信息
-            user_info: UserInfo = UserInfo(
-                platform=global_config.platform,
-                user_id=sender_info.get("user_id"),
-                user_nickname=sender_info.get("nickname"),
-                user_cardname=sender_info.get("card"),
-            )
-
-            # 不存在群信息
-            group_info: GroupInfo = None
-
-        elif message_type == MessageType.group:
-            sender_info: dict = raw_message.get("sender")
-
-            if not self.check_allow_to_chat(sender_info.get("user_id"), raw_message.get("group_id")):
-                return None
-
-            # 发送者用户信息
-            user_info: UserInfo = UserInfo(
-                platform=global_config.platform,
-                user_id=sender_info.get("user_id"),
-                user_nickname=sender_info.get("nickname"),
-                user_cardname=sender_info.get("card"),
-            )
-
-            # 获取频道相关信息
+        # 检查消息类型
+        message_type = raw_message.get("message_type")
+        if message_type not in ["group", "private"]:
+            logger.warning(f"未知的消息类型: {message_type}")
+            return
+        
+        # 检查是否允许聊天
+        if not self.check_allow_to_chat(raw_message.get("user_id"), raw_message.get("group_id")):
+            logger.info(f"消息 {raw_message.get('message_id')} 被黑白名单过滤")
+            return
+        
+        # 确保discord_bot已初始化
+        if self.discord_bot is None:
+            logger.warning("Discord bot尚未初始化，跳过消息处理")
+            return
+            
+        # 获取频道信息
+        channel = None
+        if message_type == "group":
             channel = self.discord_bot.get_channel(int(raw_message.get("group_id")))
-            group_name = channel.name if channel else None
-
-            group_info: GroupInfo = GroupInfo(
-                platform=global_config.platform,
-                group_id=raw_message.get("group_id"),
-                group_name=group_name,
-            )
-        else:
-            logger.warning(f"消息类型 {message_type} 不支持")
-            return None
+        elif message_type == "private":
+            user = await self.discord_bot.fetch_user(int(raw_message.get("user_id")))
+            channel = user.dm_channel or await user.create_dm()
+            
+        if channel is None:
+            logger.warning(f"无法获取频道信息: {raw_message.get('group_id' if message_type == 'group' else 'user_id')}")
+            return
 
         # 处理消息内容
         message_segments = await self.handle_real_message(raw_message)
         if not message_segments:
+            logger.warning(f"消息 {raw_message.get('message_id')} 没有有效内容")
             return None
 
         # 构造消息体
         message_base = MessageBase(
             message_info=BaseMessageInfo(
                 platform=global_config.platform,
-                message_id=message_id,
-                time=message_time,
-                user_info=user_info,
-                group_info=group_info,
-                template_info=template_info,
-                format_info=format_info,
+                message_id=raw_message.get("message_id"),
+                time=time.time(),
+                user_info=UserInfo(
+                    platform=global_config.platform,
+                    user_id=raw_message.get("user_id"),
+                    user_nickname=raw_message.get("sender", {}).get("nickname"),
+                    user_cardname=raw_message.get("sender", {}).get("card"),
+                ),
+                group_info=GroupInfo(
+                    platform=global_config.platform,
+                    group_id=raw_message.get("group_id"),
+                    group_name=channel.name if channel else None,
+                ) if message_type == "group" else None,
+                template_info=None,
+                format_info=FormatInfo(
+                    content_format=["text", "image", "emoji"],
+                    accept_format=["text", "image", "emoji", "reply", "voice", "command"],
+                ),
             ),
             message_segment=Seg(
                 type="seglist",
@@ -182,7 +163,8 @@ class RecvHandler:
             ),
         )
 
-        logger.debug(f"发送给Maibot的消息: {json.dumps(message_base.to_dict(), ensure_ascii=False, indent=2)}")
+        logger.info(f"消息 {raw_message.get('message_id')} 处理完成，准备发送到MaiBot")
+        logger.debug(f"发送给Maibot的消息: {json.dumps(message_base.to_dict(), ensure_ascii=False)}")
 
         # 发送消息
         await self.message_process(message_base)
@@ -426,10 +408,14 @@ class RecvHandler:
             return None
 
         try:
-            logger.debug(f"从Maibot收到的原始数据: {json.dumps(message_base.to_dict(), ensure_ascii=False, indent=2)}")
+            logger.info(f"准备发送消息到MaiBot: {message_base.message_info.message_id}")
+            logger.debug(f"从Maibot收到的原始数据: {json.dumps(message_base.to_dict(), ensure_ascii=False)}")
             response = await self.maibot_router.send_message(message_base)
             if response:
-                logger.debug(f"Maibot响应: {json.dumps(response.to_dict() if hasattr(response, 'to_dict') else response, ensure_ascii=False, indent=2)}")
+                logger.info(f"成功收到MaiBot响应: {message_base.message_info.message_id}")
+                logger.debug(f"Maibot响应: {json.dumps(response.to_dict() if hasattr(response, 'to_dict') else response, ensure_ascii=False)}")
+            else:
+                logger.warning(f"未收到MaiBot响应: {message_base.message_info.message_id}")
         except Exception as e:
             logger.error(f"发送消息到MaiBot时出错: {e}")
             return None

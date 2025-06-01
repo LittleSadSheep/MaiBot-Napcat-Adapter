@@ -27,7 +27,7 @@ class SendHandler:
         raw_message_base: MessageBase = MessageBase.from_dict(raw_message_base_dict)
         message_segment: Seg = raw_message_base.message_segment
         logger.info("接收到来自MaiBot的消息，处理中")
-        logger.debug(f"来自MaiBot的原始消息: {json.dumps(raw_message_base_dict, ensure_ascii=False, indent=2)}")
+        logger.debug(f"来自MaiBot的原始消息: {json.dumps(raw_message_base_dict, ensure_ascii=False)}")
         if message_segment.type == "command":
             return await self.send_command(raw_message_base)
         else:
@@ -122,7 +122,7 @@ class SendHandler:
             "flags": 0
         }
 
-        logger.debug(f"发送给Discord的原始消息: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+        logger.debug(f"发送给Discord的原始消息: {json.dumps(payload, ensure_ascii=False)}")
 
         # 发送消息
         if message.message_info.group_info:
