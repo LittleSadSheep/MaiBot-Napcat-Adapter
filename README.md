@@ -63,7 +63,7 @@ sequenceDiagram
     - [x] 读取戳一戳的自定义内容
   - [ ] 语音解析（？）
   - [ ] 所有的notice类
-    - [ ] <del>撤回</del>
+    - [x] 撤回（已添加相关指令）
 - [x] 发送消息
   - [x] 发送文本
   - [x] 发送图片
@@ -79,3 +79,5 @@ sequenceDiagram
 
   # 特别鸣谢
   特别感谢[@Maple127667](https://github.com/Maple127667)对本项目代码思路的支持
+
+  以及[@墨梓柒](https://github.com/DrSmoothl)对部分代码想法的支持

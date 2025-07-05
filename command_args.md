@@ -13,6 +13,8 @@ Seg.data: Dict[str, Any] = {
 }
 ```
 其中，群聊ID将会通过Group_Info.group_id自动获取。
+
+**当`duration`为 0 时相当于解除禁言。**
 ## 群聊全体禁言
 ```python
 Seg.data: Dict[str, Any] = {
@@ -45,3 +47,14 @@ Seg.data: Dict[str, Any] = {
     }
 }
 ```
+
+## 撤回消息
+```python
+Seg.data: Dict[str, Any] = {
+    "name": "DELETE_MSG",
+    "args": {
+        "message_id": "消息所对应的message_id"
+    }
+}
+```
+message_id怎么搞到手全凭你本事，也请在自己的插件里写好确定是否能撤回对应的消息的功能，毕竟这玩意真的单纯根据message_id撤消息
